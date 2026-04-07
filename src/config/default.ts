@@ -89,8 +89,8 @@ export const defaultPlanConfig: PlanConfig = {
 
 export const defaultConfig: LicenseConfig = {
   api: {
-    endpoint: process.env.LICENSING_API_ENDPOINT || 'https://api.almoxpro.com/v1',
-    apiKey: process.env.LICENSING_API_KEY || '',
+    endpoint: process.env.LICENSING_API_URL || 'http://localhost:3001',
+    apiKey: process.env.LICENSING_API_KEY || 'dev-api-key',
     timeout: 10000,
     retries: 3
   },
@@ -101,7 +101,7 @@ export const defaultConfig: LicenseConfig = {
     // Para Supabase, use connectionString
     connectionString: process.env.LICENSING_DB_URL,
     // Para PostgreSQL local
-    host: process.env.LICENSING_DB_HOST,
+    host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.LICENSING_DB_PORT || '5432'),
     username: process.env.LICENSING_DB_USER,
     password: process.env.LICENSING_DB_PASS
@@ -139,13 +139,16 @@ export const devConfig: Partial<LicenseConfig> = {
 // Configuração para produção
 export const prodConfig: Partial<LicenseConfig> = {
   validation: {
-    onlineCheckInterval: 60, // 1 hora em prod
-    offlineGracePeriod: 7 // 7 dias em prod
+    onlineCheckInterval: 60, // minutos
+    offlineGracePeriod: 7, // dias
+    maxMachines: 3
   },
+  
   security: {
     machineFingerprint: true,
-    hashAlgorithm: 'SHA-512'
-  }
+    hashAlgorithm: 'sha256',
+    encryptionKey: process.env.ENCRYPTION_KEY || 'default-key-32-chars'
+  },
 };
 
 // Função para mesclar configurações

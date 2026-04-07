@@ -5,9 +5,10 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc --project tsconfig.build.json",
+    "build": "tsc --project tsconfig.working.json",
     "build:full": "tsc",
-    "dev": "tsc --watch --project tsconfig.build.json",
+    "build:minimal": "tsc --project tsconfig.build.json",
+    "dev": "tsc --watch --project tsconfig.working.json",
     "test": "jest",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",

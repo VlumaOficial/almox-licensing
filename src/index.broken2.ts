@@ -77,7 +77,6 @@ export const LicenseProvider: React.FC<LicenseProviderProps> = ({
         };
         
         setLicenseInfo(newLicense);
-        localStorage.setItem('almox_license', JSON.stringify(newLicense));
         onLicenseChange?.(newLicense);
         return true;
       }
@@ -125,7 +124,6 @@ export const LicenseProvider: React.FC<LicenseProviderProps> = ({
   const deactivateLicense = async (): Promise<boolean> => {
     try {
       setLicenseInfo(null);
-      localStorage.removeItem('almox_license');
       onLicenseChange?.(null);
       return true;
     } catch (err) {

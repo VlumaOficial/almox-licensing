@@ -297,7 +297,7 @@ export const LicenseConfigPanel: React.FC<LicenseValidatorProps> = ({
               
               {unfreezeResult && (
                 <div className={`p-3 rounded-lg text-sm ${
-                  unffreezeResult.includes('sucesso') 
+                  unfreezeResult.includes('sucesso') 
                     ? 'bg-green-50 text-green-700' 
                     : 'bg-red-50 text-red-700'
                 }`}>
