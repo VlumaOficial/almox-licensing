@@ -1,7 +1,178 @@
-// Sistema de Licenciamento AlmoxPro - Frontend
+// Sistema de Licenciamento AlmoxPro - Frontend Otimizado
+
+// Módulos separados para melhor manutenibilidade
+class APIManager {
+    constructor() {
+        this.baseURL = window.location.origin + '/api';
+        this.cache = new Map();
+    }
+
+    async request(endpoint, options = {}) {
+        const cacheKey = `${endpoint}-${JSON.stringify(options)}`;
+        
+        if (this.cache.has(cacheKey)) {
+            return this.cache.get(cacheKey);
+        }
+
+        try {
+            const response = await fetch(`${this.baseURL}${endpoint}`, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                },
+                ...options
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            this.cache.set(cacheKey, data);
+            return data;
+        } catch (error) {
+            console.error(`API Error [${endpoint}]:`, error);
+            throw error;
+        }
+    }
+
+    clearCache() {
+        this.cache.clear();
+    }
+}
+
+class UIManager {
+    constructor() {
+        this.notifications = [];
+    }
+
+    showStatus(element, message, type = 'info', duration = 5000) {
+        element.innerHTML = `<div class="status ${type}">${message}</div>`;
+        element.style.display = 'block';
+        
+        // Auto-esconder mensagens de sucesso
+        if (type === 'success') {
+            setTimeout(() => {
+                element.style.display = 'none';
+            }, duration);
+        }
+    }
+
+    showNotification(message, type = 'info', duration = 3000) {
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.innerHTML = `
+            <div class="notification-content">
+                <span class="notification-icon">${this.getIcon(type)}</span>
+                <span class="notification-message">${message}</span>
+                <button class="notification-close" onclick="this.parentElement.remove()">×</button>
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        // Animação de entrada
+        setTimeout(() => notification.classList.add('notification-show'), 10);
+        
+        // Auto-remover
+        setTimeout(() => {
+            if (notification.parentElement) {
+                notification.classList.add('notification-hide');
+                setTimeout(() => notification.remove(), 300);
+            }
+        }, duration);
+    }
+
+    getIcon(type) {
+        const icons = {
+            success: '✅',
+            error: '❌',
+            warning: '⚠️',
+            info: 'ℹ️'
+        };
+        return icons[type] || icons.info;
+    }
+
+    setLoading(element, loading = true) {
+        if (loading) {
+            element.disabled = true;
+            element.innerHTML = 'Processando... <span class="loading"></span>';
+        } else {
+            element.disabled = false;
+            element.innerHTML = element.getAttribute('data-original-text') || element.textContent;
+        }
+    }
+
+    saveOriginalText(element) {
+        if (!element.hasAttribute('data-original-text')) {
+            element.setAttribute('data-original-text', element.textContent);
+        }
+    }
+}
+
+class CacheManager {
+    constructor() {
+        this.storage = localStorage;
+        this.prefix = 'almox_cache_';
+    }
+
+    set(key, value, ttl = 300000) { // 5 minutos default
+        try {
+            const item = {
+                value,
+                timestamp: Date.now(),
+                ttl
+            };
+            this.storage.setItem(this.prefix + key, JSON.stringify(item));
+        } catch (error) {
+            console.warn('Cache set error:', error);
+        }
+    }
+
+    get(key) {
+        try {
+            const item = JSON.parse(this.storage.getItem(this.prefix + key));
+            if (!item) return null;
+            
+            if (Date.now() - item.timestamp > item.ttl) {
+                this.delete(key);
+                return null;
+            }
+            
+            return item.value;
+        } catch (error) {
+            console.warn('Cache get error:', error);
+            return null;
+        }
+    }
+
+    delete(key) {
+        try {
+            this.storage.removeItem(this.prefix + key);
+        } catch (error) {
+            console.warn('Cache delete error:', error);
+        }
+    }
+
+    clear() {
+        try {
+            Object.keys(this.storage).forEach(key => {
+                if (key.startsWith(this.prefix)) {
+                    this.storage.removeItem(key);
+                }
+            });
+        } catch (error) {
+            console.warn('Cache clear error:', error);
+        }
+    }
+}
+
 class LicenseManager {
     constructor() {
-        this.apiBase = window.location.origin + '/api';
+        this.api = new APIManager();
+        this.ui = new UIManager();
+        this.cache = new CacheManager();
+        this.debounceTimers = new Map();
         this.init();
     }
 
@@ -9,70 +180,145 @@ class LicenseManager {
         this.setupEventListeners();
         this.loadLicenses();
         this.checkSystemStatus();
+        this.setupGlobalFunctions();
     }
 
     setupEventListeners() {
         // Validação de Licença
-        document.getElementById('validateForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.validateLicense();
-        });
+        const validateForm = document.getElementById('validateForm');
+        if (validateForm) {
+            validateForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.debounce('validate', () => this.validateLicense(), 500);
+            });
+        }
 
         // Ativação de Licença
-        document.getElementById('activateForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.activateLicense();
-        });
+        const activateForm = document.getElementById('activateForm');
+        if (activateForm) {
+            activateForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.debounce('activate', () => this.activateLicense(), 500);
+            });
+        }
 
         // Atualizar Lista
-        document.getElementById('refreshBtn').addEventListener('click', () => {
-            this.loadLicenses();
-        });
+        const refreshBtn = document.getElementById('refreshBtn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                this.debounce('refresh', () => this.loadLicenses(), 1000);
+            });
+        }
+    }
+
+    setupGlobalFunctions() {
+        // Funções globais para acesso via console
+        window.licenseManager = {
+            validate: (key, machineId) => {
+                document.getElementById('licenseKey').value = key;
+                document.getElementById('machineId').value = machineId;
+                document.getElementById('validateForm').dispatchEvent(new Event('submit'));
+            },
+            activate: (email, plan, machineId) => {
+                document.getElementById('clientEmail').value = email;
+                document.getElementById('plan').value = plan;
+                document.getElementById('machineIdActivation').value = machineId;
+                document.getElementById('activateForm').dispatchEvent(new Event('submit'));
+            },
+            clearCache: () => this.api.clearCache()
+        };
+    }
+
+    debounce(key, func, delay) {
+        if (this.debounceTimers.has(key)) {
+            clearTimeout(this.debounceTimers.get(key));
+        }
+        
+        const timer = setTimeout(() => {
+            func();
+            this.debounceTimers.delete(key);
+        }, delay);
+        
+        this.debounceTimers.set(key, timer);
     }
 
     async validateLicense() {
-        const licenseKey = document.getElementById('licenseKey').value;
-        const machineId = document.getElementById('machineId').value;
-        const version = document.getElementById('version').value;
+        const licenseKey = document.getElementById('licenseKey').value.trim();
+        const machineId = document.getElementById('machineId').value.trim();
+        const version = document.getElementById('version').value.trim();
         const statusDiv = document.getElementById('validationStatus');
         const btn = document.getElementById('validateBtn');
 
-        if (!licenseKey || !machineId) {
-            this.showStatus(statusDiv, 'Preencha todos os campos obrigatórios', 'error');
+        // Validação client-side robusta
+        const validation = this.validateInput({ licenseKey, machineId, version });
+        if (!validation.isValid) {
+            this.ui.showStatus(statusDiv, validation.error, 'error');
             return;
         }
 
-        btn.disabled = true;
-        btn.innerHTML = 'Validando... <span class="loading"></span>';
+        // Salvar texto original do botão
+        this.ui.saveOriginalText(btn);
+        this.ui.setLoading(btn, true);
 
         try {
-            const response = await fetch(`${this.apiBase}/validate-license`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ licenseKey, machineId, version })
-            });
+            // Verificar cache primeiro
+            const cacheKey = `validate-${licenseKey}-${machineId}`;
+            let data = this.cache.get(cacheKey);
+            
+            if (!data) {
+                data = await this.api.request('/validate-license', {
+                    method: 'POST',
+                    body: JSON.stringify({ licenseKey, machineId, version })
+                });
+                
+                // Salvar no cache por 5 minutos
+                this.cache.set(cacheKey, data, 300000);
+            }
 
-            const data = await response.json();
-
-            if (response.ok && data.valid) {
-                this.showStatus(statusDiv, `
+            if (data.valid) {
+                this.ui.showStatus(statusDiv, `
                     ✅ <strong>Licença Válida!</strong><br>
                     <strong>Plano:</strong> ${data.plan}<br>
-                    <strong>Expira em:</strong> ${new Date(data.expiry).toLocaleDateString()}<br>
+                    <strong>Expira em:</strong> ${new Date(data.expiry).toLocaleDateString('pt-BR')}<br>
                     <strong>Dias restantes:</strong> ${data.daysRemaining}<br>
-                    <strong>Funcionalidades:</strong> ${data.features.join(', ')}
+                    <strong>Funcionalidades:</strong> ${data.features ? data.features.join(', ') : 'Não disponíveis'}
                 `, 'success');
+                
+                // Salvar no cache local
+                localStorage.setItem('lastValidLicense', JSON.stringify(data));
             } else {
-                this.showStatus(statusDiv, `❌ <strong>${data.error || 'Licença inválida'}</strong>`, 'error');
+                this.ui.showStatus(statusDiv, `❌ <strong>${data.error || 'Licença inválida'}</strong>`, 'error');
             }
         } catch (error) {
-            this.showStatus(statusDiv, `❌ <strong>Erro na validação:</strong> ${error.message}`, 'error');
+            console.error('Validation error:', error);
+            this.ui.showStatus(statusDiv, `❌ <strong>Erro na validação:</strong> ${error.message}`, 'error');
+            
+            // Limpar cache em caso de erro
+            this.cache.delete(cacheKey);
         } finally {
-            btn.disabled = false;
-            btn.innerHTML = 'Validar Licença';
+            this.ui.setLoading(btn, false);
         }
+    }
+
+    validateInput({ licenseKey, machineId, version }) {
+        const errors = [];
+        
+        if (!licenseKey || licenseKey.length < 10) {
+            errors.push('Chave da licença é obrigatória (mínimo 10 caracteres)');
+        }
+        
+        if (!machineId || machineId.length < 5) {
+            errors.push('ID da máquina é obrigatório (mínimo 5 caracteres)');
+        }
+        
+        if (licenseKey && !licenseKey.startsWith('ALMX-')) {
+            errors.push('Chave da licença deve começar com ALMX-');
+        }
+        
+        return {
+            isValid: errors.length === 0,
+            error: errors.join('; ')
+        };
     }
 
     async activateLicense() {

@@ -175,6 +175,132 @@
         .hidden {
             display: none;
         }
+        
+        /* Notificações otimizadas */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            max-width: 400px;
+            transform: translateX(100%);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        
+        .notification-show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        
+        .notification-hide {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        
+        .notification-content {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .notification-icon {
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+        
+        .notification-message {
+            flex: 1;
+            font-weight: 500;
+        }
+        
+        .notification-close {
+            background: none;
+            border: none;
+            font-size: 1.2rem;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        
+        .notification-close:hover {
+            opacity: 1;
+        }
+        
+        .notification-success .notification-content {
+            border-left: 4px solid #28a745;
+        }
+        
+        .notification-error .notification-content {
+            border-left: 4px solid #dc3545;
+        }
+        
+        .notification-warning .notification-content {
+            border-left: 4px solid #ffc107;
+        }
+        
+        .notification-info .notification-content {
+            border-left: 4px solid #17a2b8;
+        }
+        
+        /* Melhorias nos inputs */
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        /* Loading melhorado */
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        
+        /* Responsividade melhorada */
+        @media (max-width: 480px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .dashboard {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .card {
+                padding: 20px;
+            }
+            
+            .form-group input, .form-group select {
+                font-size: 16px;
+                padding: 16px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .notification {
+                top: 10px;
+                right: 10px;
+                left: 10px;
+                max-width: none;
+                width: calc(100% - 20px);
+            }
+            
+            .notification-content {
+                padding: 12px;
+            }
+        }
     </style>
 </head>
 <body>
