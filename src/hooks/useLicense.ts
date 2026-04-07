@@ -1,5 +1,5 @@
 // Hook principal para gerenciar licenciamento
-import { useState, useEffect, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { LicenseInfo, LicenseContextValue, LicenseProviderProps } from '../types';
 import { LicenseManager } from '../utils/LicenseManager';
 import { MachineDetector } from '../utils/MachineDetector';
