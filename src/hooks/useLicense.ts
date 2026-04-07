@@ -195,10 +195,10 @@ export const LicenseProvider: React.FC<LicenseProviderProps> = ({
     deactivateLicense
   };
 
-  return (
-    <LicenseContext.Provider value={contextValue}>
-      {children}
-    </LicenseContext.Provider>
+  return React.createElement(
+    LicenseContext.Provider,
+    { value: contextValue },
+    children
   );
 };
 
