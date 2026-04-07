@@ -1,15 +1,10 @@
 {
   "version": 2,
   "name": "almox-licensing",
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    }
-  ],
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm install",
+  "framework": null,
   "routes": [
     {
       "src": "/(.*)",
@@ -25,10 +20,6 @@
       "runtime": "nodejs18.x"
     }
   },
-  "installCommand": "npm install",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "framework": null,
   "rewrites": [
     {
       "source": "/api/(.*)",
