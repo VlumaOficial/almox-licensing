@@ -2,15 +2,19 @@
 // Endpoint: /api/validate-license
 
 import { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
-import { supabaseConfig } from '../config/index.js';
-
-const supabase = createClient(
-  supabaseConfig.url,
-  supabaseConfig.anonKey
-);
+import { createSupabaseClient } from '../lib/database';
+import { 
+  calculateDaysRemaining, 
+  isExpiringSoon,
+  formatDate,
+  formatLicenseType,
+  log
+} from '../lib/utils';
+import { ValidationResult } from '../lib/types/license';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const startTime = Date.now();
+
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -21,82 +25,196 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ 
+      valid: false,
+      error: 'Método não permitido' 
+    });
   }
 
   try {
-    const { licenseKey, machineId, version } = req.body;
+    const { 
+      installation_id, 
+      license_key, 
+      validation_context 
+    } = req.body;
+
+    log('info', 'Validação de licença iniciada', { 
+      installation_id,
+      license_key: license_key?.substring(0, 10) + '...'
+    });
 
     // Validar entrada
-    if (!licenseKey || !machineId) {
-      return res.status(400).json({ 
-        error: 'License key and machine ID are required' 
+    if (!installation_id || !license_key) {
+      const responseTime = Date.now() - startTime;
+      
+      log('warn', 'Dados obrigatórios faltando', { 
+        installation_id: !!installation_id,
+        license_key: !!license_key,
+        response_time: responseTime
+      });
+
+      return res.status(400).json({
+        valid: false,
+        error: 'Installation ID e License Key são obrigatórios'
       });
     }
 
-    // Buscar licença no banco
+    // Conectar ao Supabase
+    const supabase = createSupabaseClient();
+
+    // Buscar licença no banco com dados da instalação
     const { data: license, error } = await supabase
       .from('licenses')
-      .select('*')
-      .eq('license_key', licenseKey)
+      .select(`
+        *,
+        installations!inner(
+          customer_name,
+          customer_email,
+          customer_phone,
+          installation_id,
+          hardware_fingerprint
+        )
+      `)
+      .eq('license_key', license_key)
+      .eq('installations.installation_id', installation_id)
+      .eq('status', 'active')
       .single();
 
     if (error || !license) {
-      return res.status(404).json({ 
+      const responseTime = Date.now() - startTime;
+      
+      log('warn', 'Licença não encontrada ou inativa', { 
+        installation_id,
+        license_key: license_key?.substring(0, 10) + '...',
+        error: error?.message,
+        response_time: responseTime
+      });
+
+      return res.status(404).json({
         valid: false,
-        error: 'License not found' 
+        error: 'Licença não encontrada, inativa ou installation_id inválido'
       });
     }
 
-    // Verificar se expirou
+    // Verificar se licença não expirou
     const now = new Date();
-    const expiry = new Date(license.expiry_date);
-    const isExpired = now > expiry;
+    const expiryDate = new Date(license.expires_at);
 
-    // Verificar máquina
-    const machineValid = license.machine_id === machineId;
+    if (expiryDate < now) {
+      // Marcar como expirada
+      await supabase
+        .from('licenses')
+        .update({ status: 'expired' })
+        .eq('id', license.id);
 
-    // Calcular dias restantes
-    const daysRemaining = Math.max(0, Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      await supabase
+        .from('installations')
+        .update({ status: 'expired' })
+        .eq('installation_id', installation_id);
 
-    // Determinar funcionalidades por plano
-    const features = getFeaturesByPlan(license.plan);
+      const responseTime = Date.now() - startTime;
+      
+      log('info', 'Licença expirada', { 
+        installation_id,
+        license_id: license.id,
+        expired_at: license.expires_at,
+        response_time: responseTime
+      });
 
-    // Log da validação
-    await supabase.from('license_logs').insert({
+      return res.status(403).json({
+        valid: false,
+        error: license.license_type === 'trial' ? 'TRIAL_EXPIRED' : 'LICENSE_EXPIRED',
+        expired_at: license.expires_at,
+        customer_email: license.installations.customer_email
+      });
+    }
+
+    // Validar hardware fingerprint (anti-pirataria)
+    const clientFingerprint = validation_context?.hardware_fingerprint;
+    if (clientFingerprint && clientFingerprint !== license.installations.hardware_fingerprint) {
+      const responseTime = Date.now() - startTime;
+      
+      log('warn', 'Hardware fingerprint mismatch', { 
+        installation_id,
+        expected: license.installations.hardware_fingerprint,
+        received: clientFingerprint,
+        response_time: responseTime
+      });
+
+      return res.status(403).json({
+        valid: false,
+        error: 'HARDWARE_MISMATCH',
+        message: 'Licença não válida para este hardware'
+      });
+    }
+
+    // Registrar validação (analytics)
+    const responseTime = Date.now() - startTime;
+    
+    await supabase
+      .from('validation_logs')
+      .insert({
+        license_id: license.id,
+        installation_id: installation_id,
+        customer_email: license.installations.customer_email,
+        validation_context: validation_context || {},
+        response_time_ms: responseTime,
+        granted: true,
+        ip_address: req.headers['x-forwarded-for'] || req.headers['x-real-ip'],
+        user_agent: req.headers['user-agent'],
+        hardware_fingerprint: clientFingerprint,
+        created_at: now.toISOString()
+      });
+
+    // Atualizar última validação
+    await supabase
+      .from('installations')
+      .update({ last_validated_at: now.toISOString() })
+      .eq('installation_id', installation_id);
+
+    // Preparar resultado
+    const result: ValidationResult = {
+      valid: true,
+      license_info: {
+        customer_name: license.installations.customer_name,
+        license_type: license.license_type,
+        features: license.features,
+        expires_at: license.expires_at,
+        days_remaining: calculateDaysRemaining(license.expires_at),
+        recurring: license.recurring,
+        installation_id: installation_id
+      },
+      business_data: {
+        last_payment: license.last_payment_at,
+        payment_amount: license.last_payment_amount,
+        installation_date: license.installations.created_at
+      }
+    };
+
+    log('info', 'Licença validada com sucesso', { 
+      installation_id,
       license_id: license.id,
-      action: 'validate',
-      ip_address: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-      user_agent: req.headers['user-agent']
+      license_type: license.license_type,
+      days_remaining: result.license_info?.days_remaining,
+      response_time: responseTime
     });
 
-    // Retornar resposta
-    return res.status(200).json({
-      valid: !isExpired && machineValid,
-      plan: license.plan,
-      expiry: license.expiry_date,
-      features,
-      daysRemaining,
-      machineValid,
-      isExpired,
-      clientId: license.client_id
-    });
+    // Retornar informações da licença
+    res.status(200).json(result);
 
   } catch (error) {
-    console.error('Validation error:', error);
-    return res.status(500).json({ 
-      error: 'Internal server error' 
+    const responseTime = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+    
+    log('error', 'Erro na validação da licença', { 
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      response_time: responseTime
+    });
+
+    res.status(500).json({
+      valid: false,
+      error: 'Erro na validação da licença'
     });
   }
-}
-
-function getFeaturesByPlan(plan: string): string[] {
-  const features = {
-    trial: ['basic_inventory', 'limited_reports'],
-    basic: ['inventory', 'reports', 'export'],
-    professional: ['inventory', 'reports', 'export', 'advanced_analytics', 'api_access'],
-    enterprise: ['inventory', 'reports', 'export', 'advanced_analytics', 'api_access', 'custom_features', 'priority_support']
-  };
-  
-  return features[plan as keyof typeof features] || [];
 }
